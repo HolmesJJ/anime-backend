@@ -119,8 +119,16 @@ class ProjectText(Resource):
     def post(self, project_id):
         json_data = request.get_json()
         content = json_data.get('txt', '')
-        write_project_txt(project_id, content)
-        return {'message': 'Txt written successfully'}
+        txt_path = os.path.join(DATA_DIR, f'{project_id}.txt')
+        if content.strip() == '':
+            if os.path.exists(txt_path):
+                os.remove(txt_path)
+                return {'message': 'Txt was empty and has been deleted'}
+            else:
+                return {'message': 'Txt was empty and did not exist'}, 204
+        else:
+            write_project_txt(project_id, content)
+            return {'message': 'Txt written successfully'}
 
 
 class Project(Resource):
