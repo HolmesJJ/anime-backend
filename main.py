@@ -123,7 +123,34 @@ class ProjectText(Resource):
         return {'message': 'Txt written successfully'}
 
 
-class AddProject(Resource):
+class Project(Resource):
+    def get(self, project_id):
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            query = '''
+                SELECT 
+                    p.id, p.name, p.description, s.style 
+                FROM 
+                    project p 
+                LEFT JOIN 
+                    style s ON p.style_id = s.id
+                WHERE 
+                    p.id = %s
+            '''
+            df = pd.read_sql_query(query, cnx, params=[project_id])
+            cnx.close()
+            if df.empty:
+                return {'error': 'Project not found'}, 404
+            project = df.to_dict(orient='records')[0]
+            return jsonify(project)
+        except Exception as e:
+            return {'error': str(e)}, 500
+
     def post(self):
         try:
             data = request.get_json()
@@ -152,38 +179,7 @@ class AddProject(Resource):
         except mysql.connector.Error as err:
             return {'error': str(err)}, 500
 
-
-class GetProject(Resource):
-    def get(self, project_id):
-        try:
-            cnx = mysql.connector.connect(
-                host=MYSQL['host'],
-                user=MYSQL['username'],
-                password=MYSQL['password'],
-                database=MYSQL['database']
-            )
-            query = '''
-                SELECT 
-                    p.id, p.name, p.description, s.style 
-                FROM 
-                    project p 
-                LEFT JOIN 
-                    style s ON p.style_id = s.id
-                WHERE 
-                    p.id = %s
-            '''
-            df = pd.read_sql_query(query, cnx, params=[project_id])
-            cnx.close()
-            if df.empty:
-                return {'error': 'Project not found'}, 404
-            project = df.to_dict(orient='records')[0]
-            return jsonify(project)
-        except Exception as e:
-            return {'error': str(e)}, 500
-
-
-class UpdateProject(Resource):
-    def post(self, project_id):
+    def put(self, project_id):
         try:
             data = request.get_json()
             fields = []
@@ -212,8 +208,6 @@ class UpdateProject(Resource):
         except Exception as e:
             return {'error': str(e)}, 500
 
-
-class DeleteProject(Resource):
     def delete(self, project_id):
         try:
             cnx = mysql.connector.connect(
@@ -243,10 +237,7 @@ api.add_resource(Index, '/', endpoint='index')
 api.add_resource(Data, '/data/<path:path>')
 api.add_resource(Styles, '/api/styles', endpoint='styles')
 api.add_resource(Projects, '/api/projects', endpoint='projects')
-api.add_resource(AddProject, '/api/project/add', endpoint='add_project')
-api.add_resource(GetProject, '/api/project/<int:project_id>', endpoint='get_project')
-api.add_resource(UpdateProject, '/api/project/<int:project_id>/update', endpoint='update_project')
-api.add_resource(DeleteProject, '/api/project/<int:project_id>/delete', endpoint='delete_project')
+api.add_resource(Project, '/api/project', '/api/project/<int:project_id>')
 api.add_resource(ProjectText, '/api/project/<int:project_id>/text')
 
 
