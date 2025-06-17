@@ -1,4 +1,5 @@
 import os
+import time
 import shutil
 import pandas as pd
 import mysql.connector
@@ -36,7 +37,7 @@ MYSQL = {
 DATA_DIR = os.getenv('DATA_DIR')
 
 
-def read_project_txt(project_id):
+def read_novel(project_id):
     txt_path = os.path.join(DATA_DIR, f'{project_id}.txt')
     if not os.path.isfile(txt_path):
         return None
@@ -44,7 +45,7 @@ def read_project_txt(project_id):
         return f.read()
 
 
-def write_project_txt(project_id, content):
+def write_novel(project_id, content):
     txt_path = os.path.join(DATA_DIR, f'{project_id}.txt')
     with open(txt_path, 'w', encoding='utf-8') as f:
         f.write(content)
@@ -109,11 +110,11 @@ class Projects(Resource):
             return {'error': str(e)}, 500
 
 
-class ProjectText(Resource):
+class Novel(Resource):
     def get(self, project_id):
-        content = read_project_txt(project_id)
+        content = read_novel(project_id)
         if content is None:
-            return {'message': 'Text file not found'}, 404
+            return {'message': 'Novel file not found'}, 404
         return {'txt': content}
 
     def post(self, project_id):
@@ -123,12 +124,12 @@ class ProjectText(Resource):
         if content.strip() == '':
             if os.path.exists(txt_path):
                 os.remove(txt_path)
-                return {'message': 'Txt was empty and has been deleted'}
+                return {'message': 'Novel was empty and has been deleted'}
             else:
-                return {'message': 'Txt was empty and did not exist'}, 204
+                return {'message': 'Novel was empty and did not exist'}, 204
         else:
-            write_project_txt(project_id, content)
-            return {'message': 'Txt written successfully'}
+            write_novel(project_id, content)
+            return {'message': 'Novel written successfully'}
 
 
 class Project(Resource):
@@ -241,12 +242,51 @@ class Project(Resource):
             return {'error': str(e)}, 500
 
 
+class GenerateComic(Resource):
+    def get(self, project_id):
+        print(project_id)
+        time.sleep(2)
+        return {'message': 'Comic generated successfully'}
+
+
+class GenerateAnime(Resource):
+    def get(self, project_id):
+        print(project_id)
+        time.sleep(2)
+        return {'message': 'Anime generated successfully'}
+
+
+class GenerateFullAnime(Resource):
+    def get(self, project_id):
+        print(project_id)
+        time.sleep(2)
+        return {'message': 'Full anime generated successfully'}
+
+
+class Regenerate(Resource):
+    def post(self):
+        try:
+            data = request.get_json()
+            project_detail_id = data.get('project_detail_id')
+            image_description = data.get('image_description')
+            video_description = data.get('video_description')
+            print(project_detail_id, image_description, video_description)
+        except mysql.connector.Error as err:
+            return {'error': str(err)}, 500
+        time.sleep(2)
+        return {'message': 'Regenerate successfully'}
+
+
 api.add_resource(Index, '/', endpoint='index')
 api.add_resource(Data, '/data/<path:path>')
 api.add_resource(Styles, '/api/styles', endpoint='styles')
 api.add_resource(Projects, '/api/projects', endpoint='projects')
-api.add_resource(Project, '/api/project', '/api/project/<int:project_id>')
-api.add_resource(ProjectText, '/api/project/<int:project_id>/text')
+api.add_resource(Project, '/api/project', '/api/project/<int:project_id>', endpoint='project')
+api.add_resource(Novel, '/api/project/novel/<int:project_id>', endpoint='novel')
+api.add_resource(GenerateComic, '/api/project/generate_comic/<int:project_id>', endpoint='generate_comic')
+api.add_resource(GenerateAnime, '/api/project/generate_anime/<int:project_id>', endpoint='generate_anime')
+api.add_resource(GenerateFullAnime, '/api/project/generate_full_anime/<int:project_id>', endpoint='generate_full_anime')
+api.add_resource(Regenerate, '/api/project/regenerate', endpoint='regenerate')
 
 
 if __name__ == '__main__':
