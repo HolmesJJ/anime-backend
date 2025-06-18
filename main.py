@@ -212,6 +212,9 @@ class Project(Resource):
             if 'name' in data:
                 fields.append('name = %s')
                 values.append(data['name'])
+            if 'description' in data:
+                fields.append('description = %s')
+                values.append(data['description'])
             if 'style_id' in data:
                 fields.append('style_id = %s')
                 values.append(data['style_id'])
@@ -229,6 +232,8 @@ class Project(Resource):
                 cnx.commit()
                 cursor.close()
                 cnx.close()
+                if 'description' in data:
+                    generate(project_id, data['description'])
             return {'message': 'Project updated successfully'}
         except Exception as e:
             return {'error': str(e)}, 500
