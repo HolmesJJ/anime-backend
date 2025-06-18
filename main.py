@@ -1,10 +1,11 @@
 import os
 import time
+import base64
 import shutil
 import pandas as pd
 import mysql.connector
 
-from threading import Lock
+from openai import OpenAI
 from dotenv import load_dotenv
 from flask import abort
 from flask import Flask
@@ -25,7 +26,6 @@ application.config['PROPAGATE_EXCEPTIONS'] = True
 
 cors = CORS(application)
 api = Api(application)
-export_lock = Lock()
 
 MYSQL = {
     'host': os.getenv('MYSQL_HOST'),
@@ -34,7 +34,22 @@ MYSQL = {
     'database': os.getenv('MYSQL_DATABASE')
 }
 
+GPT_IMAGE_MODEL = os.getenv('GPT_IMAGE_MODEL')
+GPT_KEY = os.getenv('GPT_KEY')
+
 DATA_DIR = os.getenv('DATA_DIR')
+
+
+def generate(project_id, prompt_content):
+    client = OpenAI(api_key=GPT_KEY)
+    result = client.images.generate(
+        model=GPT_IMAGE_MODEL,
+        prompt=prompt_content
+    )
+    image_base64 = result.data[0].b64_json
+    image_bytes = base64.b64decode(image_base64)
+    with open(os.path.join(DATA_DIR, f'{project_id}.png'), 'wb') as f:
+        f.write(image_bytes)
 
 
 def read_novel(project_id):
@@ -181,6 +196,7 @@ class Project(Resource):
             cnx.commit()
             cursor.close()
             cnx.close()
+            generate(project_id, description)
             return {
                 'message': 'Project added successfully',
                 'project_id': project_id
@@ -290,4 +306,4 @@ api.add_resource(Regenerate, '/api/project/regenerate', endpoint='regenerate')
 
 
 if __name__ == '__main__':
-    application.run(host='0.0.0.0', port=6060)
+    application.run(host='0.0.0.0', port=5050)
