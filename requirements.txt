@@ -1,6 +1,7 @@
 openai
 pandas
 Flask
+pillow
 Flask-Cors
 Flask-RESTful
 python-dotenv

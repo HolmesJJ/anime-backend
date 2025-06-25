@@ -1,12 +1,15 @@
 import os
 import time
 import base64
+import random
 import shutil
 import pandas as pd
 import mysql.connector
 
 from openai import OpenAI
 from dotenv import load_dotenv
+from PIL import Image
+from PIL import ImageDraw
 from flask import abort
 from flask import Flask
 from flask import jsonify
@@ -41,15 +44,25 @@ DATA_DIR = os.getenv('DATA_DIR')
 
 
 def generate(project_id, prompt_content):
-    client = OpenAI(api_key=GPT_KEY)
-    result = client.images.generate(
-        model=GPT_IMAGE_MODEL,
-        prompt=prompt_content
-    )
-    image_base64 = result.data[0].b64_json
-    image_bytes = base64.b64decode(image_base64)
-    with open(os.path.join(DATA_DIR, f'{project_id}.png'), 'wb') as f:
-        f.write(image_bytes)
+    # client = OpenAI(api_key=GPT_KEY)
+    # result = client.images.generate(
+    #     model=GPT_IMAGE_MODEL,
+    #     prompt=prompt_content
+    # )
+    # image_base64 = result.data[0].b64_json
+    # image_bytes = base64.b64decode(image_base64)
+    # with open(os.path.join(DATA_DIR, f'{project_id}.png'), 'wb') as f:
+    #     f.write(image_bytes)
+    img = Image.new('RGB', (400, 400), 'white')
+    draw = ImageDraw.Draw(img)
+    for _ in range(10):
+        x0 = random.randint(0, 300)
+        y0 = random.randint(0, 300)
+        x1 = x0 + random.randint(20, 100)
+        y1 = y0 + random.randint(20, 100)
+        color = tuple(random.randint(0, 255) for _ in range(3))
+        draw.ellipse([x0, y0, x1, y1], fill=color, outline='black')
+    img.save(os.path.join(DATA_DIR, f'{project_id}.png'))
 
 
 def read_novel(project_id):
@@ -123,28 +136,6 @@ class Projects(Resource):
             return jsonify(data)
         except Exception as e:
             return {'error': str(e)}, 500
-
-
-class Novel(Resource):
-    def get(self, project_id):
-        content = read_novel(project_id)
-        if content is None:
-            return {'message': 'Novel file not found'}, 404
-        return {'txt': content}
-
-    def post(self, project_id):
-        json_data = request.get_json()
-        content = json_data.get('txt', '')
-        txt_path = os.path.join(DATA_DIR, f'{project_id}.txt')
-        if content.strip() == '':
-            if os.path.exists(txt_path):
-                os.remove(txt_path)
-                return {'message': 'Novel was empty and has been deleted'}
-            else:
-                return {'message': 'Novel was empty and did not exist'}, 204
-        else:
-            write_novel(project_id, content)
-            return {'message': 'Novel written successfully'}
 
 
 class Project(Resource):
@@ -263,22 +254,71 @@ class Project(Resource):
             return {'error': str(e)}, 500
 
 
-class GenerateComic(Resource):
+class Novel(Resource):
     def get(self, project_id):
+        content = read_novel(project_id)
+        if content is None:
+            return {'message': 'Novel file not found'}, 404
+        return {'txt': content}
+
+    def post(self, project_id):
+        json_data = request.get_json()
+        content = json_data.get('txt', '')
+        txt_path = os.path.join(DATA_DIR, f'{project_id}.txt')
+        if content.strip() == '':
+            if os.path.exists(txt_path):
+                os.remove(txt_path)
+                return {'message': 'Novel was empty and has been deleted'}
+            else:
+                return {'message': 'Novel was empty and did not exist'}, 204
+        else:
+            write_novel(project_id, content)
+            return {'message': 'Novel written successfully'}
+
+
+class Comic(Resource):
+    def get(self, project_id):
+        folder_path = os.path.join(DATA_DIR, str(project_id))
+        if not os.path.exists(folder_path):
+            return {'count': 0}
+        image_extensions = ('.png', '.jpg', '.jpeg')
+        image_count = len([
+            name for name in os.listdir(folder_path)
+            if os.path.isfile(os.path.join(folder_path, name)) and name.lower().endswith(image_extensions)
+        ])
+        return {'count': image_count}
+
+    def post(self, project_id):
         print(project_id)
         time.sleep(2)
         return {'message': 'Comic generated successfully'}
 
 
-class GenerateAnime(Resource):
+class Anime(Resource):
     def get(self, project_id):
+        folder_path = os.path.join(DATA_DIR, str(project_id))
+        if not os.path.exists(folder_path):
+            return {'count': 0}
+        video_count = len([
+            name for name in os.listdir(folder_path)
+            if os.path.isfile(os.path.join(folder_path, name)) and name.lower().endswith('.mp4')
+        ])
+        return {'count': video_count}
+
+    def post(self, project_id):
         print(project_id)
         time.sleep(2)
         return {'message': 'Anime generated successfully'}
 
 
-class GenerateFullAnime(Resource):
+class FullAnime(Resource):
     def get(self, project_id):
+        video_path = os.path.join(DATA_DIR, f'{project_id}.mp4')
+        if not os.path.exists(video_path):
+            return {'count': 0}
+        return {'count': 1}
+
+    def post(self, project_id):
         print(project_id)
         time.sleep(2)
         return {'message': 'Full anime generated successfully'}
@@ -292,6 +332,7 @@ class Regenerate(Resource):
             image_description = data.get('image_description')
             video_description = data.get('video_description')
             print(project_detail_id, image_description, video_description)
+            time.sleep(2)
         except mysql.connector.Error as err:
             return {'error': str(err)}, 500
         time.sleep(2)
@@ -304,9 +345,9 @@ api.add_resource(Styles, '/api/styles', endpoint='styles')
 api.add_resource(Projects, '/api/projects', endpoint='projects')
 api.add_resource(Project, '/api/project', '/api/project/<int:project_id>', endpoint='project')
 api.add_resource(Novel, '/api/project/novel/<int:project_id>', endpoint='novel')
-api.add_resource(GenerateComic, '/api/project/generate_comic/<int:project_id>', endpoint='generate_comic')
-api.add_resource(GenerateAnime, '/api/project/generate_anime/<int:project_id>', endpoint='generate_anime')
-api.add_resource(GenerateFullAnime, '/api/project/generate_full_anime/<int:project_id>', endpoint='generate_full_anime')
+api.add_resource(Comic, '/api/project/comic/<int:project_id>', endpoint='comic')
+api.add_resource(Anime, '/api/project/anime/<int:project_id>', endpoint='anime')
+api.add_resource(FullAnime, '/api/project/full_anime/<int:project_id>', endpoint='full_anime')
 api.add_resource(Regenerate, '/api/project/regenerate', endpoint='regenerate')
 
 
