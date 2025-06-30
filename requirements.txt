@@ -1,7 +1,8 @@
 openai
 pandas
-Flask
 pillow
+moviepy==1.0.3
+Flask
 Flask-Cors
 Flask-RESTful
 python-dotenv

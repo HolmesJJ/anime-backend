@@ -1,7 +1,7 @@
 import os
+import re
 import time
 import base64
-import random
 import shutil
 import pandas as pd
 import mysql.connector
@@ -10,6 +10,7 @@ from openai import OpenAI
 from dotenv import load_dotenv
 from PIL import Image
 from PIL import ImageDraw
+from PIL import ImageFont
 from flask import abort
 from flask import Flask
 from flask import jsonify
@@ -18,6 +19,9 @@ from flask import send_from_directory
 from flask_cors import CORS
 from flask_restful import Api
 from flask_restful import Resource
+from moviepy.editor import ImageClip
+from moviepy.editor import VideoFileClip
+from moviepy.editor import concatenate_videoclips
 
 
 load_dotenv()
@@ -40,10 +44,12 @@ MYSQL = {
 GPT_IMAGE_MODEL = os.getenv('GPT_IMAGE_MODEL')
 GPT_KEY = os.getenv('GPT_KEY')
 
+ASSETS_DIR = os.getenv('ASSETS_DIR')
 DATA_DIR = os.getenv('DATA_DIR')
+FRONT_PATH = os.path.join(ASSETS_DIR, 'arial.ttf')
 
 
-def generate(project_id, prompt_content):
+def generate_image(file_name, image_path, color, prompt_content):
     # client = OpenAI(api_key=GPT_KEY)
     # result = client.images.generate(
     #     model=GPT_IMAGE_MODEL,
@@ -51,18 +57,40 @@ def generate(project_id, prompt_content):
     # )
     # image_base64 = result.data[0].b64_json
     # image_bytes = base64.b64decode(image_base64)
-    # with open(os.path.join(DATA_DIR, f'{project_id}.png'), 'wb') as f:
+    # with open(os.path.join(DATA_DIR, f'{file_name}.png'), 'wb') as f:
     #     f.write(image_bytes)
-    img = Image.new('RGB', (400, 400), 'white')
+    width, height = 640, 480
+    img = Image.new('RGB', (width, height), 'white')
     draw = ImageDraw.Draw(img)
-    for _ in range(10):
-        x0 = random.randint(0, 300)
-        y0 = random.randint(0, 300)
-        x1 = x0 + random.randint(20, 100)
-        y1 = y0 + random.randint(20, 100)
-        color = tuple(random.randint(0, 255) for _ in range(3))
-        draw.ellipse([x0, y0, x1, y1], fill=color, outline='black')
-    img.save(os.path.join(DATA_DIR, f'{project_id}.png'))
+    font_size = 100
+    font = ImageFont.truetype(FRONT_PATH, font_size)
+    text = str(file_name)
+    bbox = font.getbbox(text)
+    text_width = bbox[2] - bbox[0]
+    text_height = bbox[3] - bbox[1]
+    text_x = (width - text_width) // 2 - bbox[0]
+    text_y = (height - text_height) // 2 - bbox[1]
+    draw.text((text_x, text_y), text, fill=color, font=font)
+    img.save(image_path)
+
+
+def generate_video(image_path, video_path):
+    duration = 4
+    fade_duration = 1
+    clip = ImageClip(image_path, duration=duration)
+    clip = clip.fx(ImageClip.fadein, fade_duration)
+    clip = clip.fx(ImageClip.fadeout, fade_duration)
+    clip.write_videofile(video_path, fps=24)
+    clip.close()
+
+
+def combine_videos(video_paths, full_video_path):
+    clips = [VideoFileClip(p) for p in video_paths]
+    final = concatenate_videoclips(clips, method='compose')
+    final.write_videofile(full_video_path, codec='libx264', fps=24, audio=True)
+    for c in clips:
+        c.close()
+    final.close()
 
 
 def read_novel(project_id):
@@ -187,7 +215,8 @@ class Project(Resource):
             cnx.commit()
             cursor.close()
             cnx.close()
-            generate(project_id, description)
+            image_path = os.path.join(DATA_DIR, f'{project_id}.png')
+            generate_image(project_id, image_path, 'blue', description)
             return {
                 'message': 'Project added successfully',
                 'project_id': project_id
@@ -224,7 +253,8 @@ class Project(Resource):
                 cursor.close()
                 cnx.close()
                 if 'description' in data:
-                    generate(project_id, data['description'])
+                    image_path = os.path.join(DATA_DIR, f'{project_id}.png')
+                    generate_image(project_id, image_path, 'blue', data['description'])
             return {'message': 'Project updated successfully'}
         except Exception as e:
             return {'error': str(e)}, 500
@@ -245,7 +275,7 @@ class Project(Resource):
             folder_path = os.path.join(DATA_DIR, str(project_id))
             if os.path.exists(folder_path):
                 shutil.rmtree(folder_path)
-            for ext in ['txt', 'png']:
+            for ext in ['txt', 'png', 'mp4']:
                 file_path = os.path.join(DATA_DIR, f'{project_id}.{ext}')
                 if os.path.exists(file_path):
                     os.remove(file_path)
@@ -254,11 +284,68 @@ class Project(Resource):
             return {'error': str(e)}, 500
 
 
+class ProjectDetails(Resource):
+    def get(self, project_id, column):
+        allowed_columns = {'paragraph', 'image_description', 'video_description'}
+        if column not in allowed_columns:
+            return {'error': f'Invalid column name: {column}'}, 400
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor(dictionary=True)
+            query = f'''
+                SELECT id, {column}
+                FROM project_detail
+                WHERE project_id = %s
+            '''
+            cursor.execute(query, (project_id,))
+            rows = cursor.fetchall()
+            cnx.close()
+            result = [{'id': row['id'], column: row[column]} for row in rows]
+            return result
+        except Exception as e:
+            return {'error': str(e)}, 500
+
+
+class ProjectDetail(Resource):
+    def get(self, project_detail_id):
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor(dictionary=True)
+            query = '''
+                SELECT id,
+                       project_id,
+                       paragraph,
+                       image_description,
+                       video_description
+                FROM   project_detail
+                WHERE  id = %s
+            '''
+            cursor.execute(query, (project_detail_id,))
+            row = cursor.fetchone()
+            cursor.close()
+            cnx.close()
+            if row is None:
+                return {'error': 'Project detail not found'}, 404
+            return row
+        except Exception as e:
+            return {'error': str(e)}, 500
+
+
 class Novel(Resource):
     def get(self, project_id):
         content = read_novel(project_id)
         if content is None:
-            return {'message': 'Novel file not found'}, 404
+            return {'error': 'Novel file not found'}, 404
         return {'txt': content}
 
     def post(self, project_id):
@@ -266,62 +353,175 @@ class Novel(Resource):
         content = json_data.get('txt', '')
         txt_path = os.path.join(DATA_DIR, f'{project_id}.txt')
         if content.strip() == '':
-            if os.path.exists(txt_path):
-                os.remove(txt_path)
-                return {'message': 'Novel was empty and has been deleted'}
-            else:
-                return {'message': 'Novel was empty and did not exist'}, 204
+            try:
+                cnx = mysql.connector.connect(
+                    host=MYSQL['host'],
+                    user=MYSQL['username'],
+                    password=MYSQL['password'],
+                    database=MYSQL['database']
+                )
+                cursor = cnx.cursor()
+                cursor.execute('DELETE FROM project_detail WHERE project_id = %s', (project_id,))
+                cnx.commit()
+                folder_path = os.path.join(DATA_DIR, str(project_id))
+                if os.path.exists(folder_path):
+                    shutil.rmtree(folder_path)
+                if os.path.exists(txt_path):
+                    os.remove(txt_path)
+                    return {'message': 'Novel was empty and has been deleted'}
+                else:
+                    return {'message': 'Novel was empty and did not exist'}, 204
+            except Exception as e:
+                return {'error': str(e)}, 500
         else:
-            write_novel(project_id, content)
+            try:
+                cnx = mysql.connector.connect(
+                    host=MYSQL['host'],
+                    user=MYSQL['username'],
+                    password=MYSQL['password'],
+                    database=MYSQL['database']
+                )
+                cursor = cnx.cursor()
+                cursor.execute('DELETE FROM project_detail WHERE project_id = %s', (project_id,))
+                paragraphs = [p.strip() for p in re.split(r'\r?\n+', content) if p.strip()]
+                query = '''
+                    INSERT INTO project_detail (paragraph, project_id)
+                    VALUES (%s, %s)
+                '''
+                data = [(para, project_id) for para in paragraphs]
+                cursor.executemany(query, data)
+                cnx.commit()
+                folder_path = os.path.join(DATA_DIR, str(project_id))
+                if os.path.exists(folder_path):
+                    shutil.rmtree(folder_path)
+                write_novel(project_id, content)
+            except Exception as e:
+                return {'error': str(e)}, 500
             return {'message': 'Novel written successfully'}
 
 
 class Comic(Resource):
     def get(self, project_id):
-        folder_path = os.path.join(DATA_DIR, str(project_id))
-        if not os.path.exists(folder_path):
-            return {'count': 0}
-        image_extensions = ('.png', '.jpg', '.jpeg')
-        image_count = len([
-            name for name in os.listdir(folder_path)
-            if os.path.isfile(os.path.join(folder_path, name)) and name.lower().endswith(image_extensions)
-        ])
-        return {'count': image_count}
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor()
+            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            ids = [row[0] for row in cursor.fetchall()]
+            cursor.close()
+            cnx.close()
+            return {'ids': ids}
+        except Exception as e:
+            return {'error': str(e)}, 500
 
     def post(self, project_id):
-        print(project_id)
-        time.sleep(2)
-        return {'message': 'Comic generated successfully'}
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor()
+            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            ids = [row[0] for row in cursor.fetchall()]
+            cursor.close()
+            cnx.close()
+            folder_path = os.path.join(DATA_DIR, str(project_id))
+            os.makedirs(folder_path, exist_ok=True)
+            for pid in ids:
+                image_path = os.path.join(folder_path, f'{pid}.png')
+                generate_image(pid, image_path, 'green', '')
+            return {'message': 'Comic generated successfully'}
+        except Exception as e:
+            return {'error': str(e)}, 500
 
 
 class Anime(Resource):
     def get(self, project_id):
-        folder_path = os.path.join(DATA_DIR, str(project_id))
-        if not os.path.exists(folder_path):
-            return {'count': 0}
-        video_count = len([
-            name for name in os.listdir(folder_path)
-            if os.path.isfile(os.path.join(folder_path, name)) and name.lower().endswith('.mp4')
-        ])
-        return {'count': video_count}
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor()
+            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            ids = [row[0] for row in cursor.fetchall()]
+            cursor.close()
+            cnx.close()
+            return {'ids': ids}
+        except Exception as e:
+            return {'error': str(e)}, 500
 
     def post(self, project_id):
-        print(project_id)
-        time.sleep(2)
-        return {'message': 'Anime generated successfully'}
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor()
+            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            ids = [row[0] for row in cursor.fetchall()]
+            cursor.close()
+            cnx.close()
+            folder_path = os.path.join(DATA_DIR, str(project_id))
+            os.makedirs(folder_path, exist_ok=True)
+            for pid in ids:
+                image_path = os.path.join(folder_path, f'{pid}.png')
+                video_path = os.path.join(folder_path, f'{pid}.mp4')
+                if not os.path.exists(image_path):
+                    continue
+                generate_video(image_path, video_path)
+            return {'message': 'Anime generated successfully'}
+        except Exception as e:
+            return {'error': str(e)}, 500
 
 
 class FullAnime(Resource):
     def get(self, project_id):
-        video_path = os.path.join(DATA_DIR, f'{project_id}.mp4')
-        if not os.path.exists(video_path):
-            return {'count': 0}
-        return {'count': 1}
+        full_video_path = os.path.join(DATA_DIR, f'{project_id}.mp4')
+        if os.path.exists(full_video_path):
+            return {'message': 'Full anime exists'}
+        else:
+            return {'error': 'Full anime not found'}, 404
 
     def post(self, project_id):
-        print(project_id)
-        time.sleep(2)
-        return {'message': 'Full anime generated successfully'}
+        try:
+            cnx = mysql.connector.connect(
+                host=MYSQL['host'],
+                user=MYSQL['username'],
+                password=MYSQL['password'],
+                database=MYSQL['database']
+            )
+            cursor = cnx.cursor()
+            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            ids = [row[0] for row in cursor.fetchall()]
+            cursor.close()
+            cnx.close()
+            folder_path = os.path.join(DATA_DIR, str(project_id))
+            os.makedirs(folder_path, exist_ok=True)
+            video_paths = []
+            for pid in ids:
+                video_path = os.path.join(folder_path, f'{pid}.mp4')
+                if not os.path.exists(video_path):
+                    continue
+                video_paths.append(video_path)
+            full_video_path = os.path.join(DATA_DIR, f'{project_id}.mp4')
+            if video_paths:
+                combine_videos(video_paths, full_video_path)
+                return {'message': 'Full anime generated successfully'}
+            else:
+                return {'error': 'Amine not found'}, 404
+        except Exception as e:
+            return {'error': str(e)}, 500
 
 
 class Regenerate(Resource):
@@ -344,12 +544,15 @@ api.add_resource(Data, '/data/<path:path>')
 api.add_resource(Styles, '/api/styles', endpoint='styles')
 api.add_resource(Projects, '/api/projects', endpoint='projects')
 api.add_resource(Project, '/api/project', '/api/project/<int:project_id>', endpoint='project')
-api.add_resource(Novel, '/api/project/novel/<int:project_id>', endpoint='novel')
-api.add_resource(Comic, '/api/project/comic/<int:project_id>', endpoint='comic')
-api.add_resource(Anime, '/api/project/anime/<int:project_id>', endpoint='anime')
-api.add_resource(FullAnime, '/api/project/full_anime/<int:project_id>', endpoint='full_anime')
+api.add_resource(Novel, '/api/project/<int:project_id>/novel', endpoint='novel')
+api.add_resource(Comic, '/api/project/<int:project_id>/comic', endpoint='comic')
+api.add_resource(Anime, '/api/project/<int:project_id>/anime', endpoint='anime')
+api.add_resource(FullAnime, '/api/project/<int:project_id>/full_anime', endpoint='full_anime')
+api.add_resource(ProjectDetails, '/api/project/<int:project_id>/details/<string:column>', endpoint='project_details')
+api.add_resource(ProjectDetail, '/api/project/detail/<int:project_detail_id>', endpoint='project_detail')
 api.add_resource(Regenerate, '/api/project/regenerate', endpoint='regenerate')
 
-
 if __name__ == '__main__':
+    # generate_image('temp', os.path.join(DATA_DIR, 'temp.png'), 'blue', '')
+    # generate_video(os.path.join(DATA_DIR, 'temp.png'), os.path.join(DATA_DIR, 'temp.mp4'))
     application.run(host='0.0.0.0', port=5050)
