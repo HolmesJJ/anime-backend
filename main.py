@@ -15,7 +15,9 @@ from flask import abort
 from flask import Flask
 from flask import jsonify
 from flask import request
+from flask import Response
 from flask import send_from_directory
+from flask import stream_with_context
 from flask_cors import CORS
 from flask_restful import Api
 from flask_restful import Resource
@@ -41,6 +43,7 @@ MYSQL = {
     'database': os.getenv('MYSQL_DATABASE')
 }
 
+GPT_TEXT_MODEL = os.getenv('GPT_TEXT_MODEL')
 GPT_IMAGE_MODEL = os.getenv('GPT_IMAGE_MODEL')
 GPT_KEY = os.getenv('GPT_KEY')
 
@@ -363,6 +366,8 @@ class Novel(Resource):
                 cursor = cnx.cursor()
                 cursor.execute('DELETE FROM project_detail WHERE project_id = %s', (project_id,))
                 cnx.commit()
+                cursor.close()
+                cnx.close()
                 folder_path = os.path.join(DATA_DIR, str(project_id))
                 if os.path.exists(folder_path):
                     shutil.rmtree(folder_path)
@@ -391,6 +396,8 @@ class Novel(Resource):
                 data = [(para, project_id) for para in paragraphs]
                 cursor.executemany(query, data)
                 cnx.commit()
+                cursor.close()
+                cnx.close()
                 folder_path = os.path.join(DATA_DIR, str(project_id))
                 if os.path.exists(folder_path):
                     shutil.rmtree(folder_path)
@@ -398,6 +405,69 @@ class Novel(Resource):
             except Exception as e:
                 return {'error': str(e)}, 500
             return {'message': 'Novel written successfully'}
+
+
+class NovelContinue(Resource):
+    def post(self, project_id):
+        data = request.get_json()
+        txt = data.get('txt', '')
+        summary = data.get('summary', '')
+        if summary.strip() == '':
+            return {'error': 'Field "txt" is required'}, 400
+        try:
+            cnx = mysql.connector.connect(**MYSQL)
+            cursor = cnx.cursor()
+            cursor.execute('SELECT 1 FROM project WHERE id=%s LIMIT 1', (project_id,))
+            row = cursor.fetchone()
+            cursor.close()
+            cnx.close()
+            if row is None:
+                return {'error': 'Project not found'}, 404
+        except Exception as e1:
+            return {'error': str(e1)}, 500
+        messages = [
+            {
+                'role': 'system',
+                'content': (
+                    'You are an excellent novelist. '
+                    'First read the previous text and the provided outline, '
+                    'then continue the story in the same tone. '
+                    'Your continuation must strictly follow the outline '
+                    'and stay within 300 characters (including spaces).'
+                )
+            },
+            {
+                'role': 'user',
+                'content': (
+                    f'Previous text:\n{txt}\n\n'
+                    f'Outline for the next part:\n{summary}\n\n'
+                    'Please continue the story within below. '
+                    'Output ONLY the continuation, no extra words.'
+                )
+            }
+        ]
+        client = OpenAI(api_key=GPT_KEY)
+        stream = client.chat.completions.create(
+            model=GPT_TEXT_MODEL,
+            messages=messages,
+            temperature=0.7,
+            stream=True
+        )
+
+        def token_generator():
+            try:
+                for chunk in stream:
+                    delta = chunk.choices[0].delta
+                    if delta and delta.content:
+                        yield delta.content
+            except Exception as e2:
+                yield f'\n[ERROR] {e2}\n'
+
+        return Response(
+            stream_with_context(token_generator()),
+            mimetype='text/event-stream',
+            status=200
+        )
 
 
 class Comic(Resource):
@@ -551,6 +621,8 @@ api.add_resource(FullAnime, '/api/project/<int:project_id>/full_anime', endpoint
 api.add_resource(ProjectDetails, '/api/project/<int:project_id>/details/<string:column>', endpoint='project_details')
 api.add_resource(ProjectDetail, '/api/project/detail/<int:project_detail_id>', endpoint='project_detail')
 api.add_resource(Regenerate, '/api/project/regenerate', endpoint='regenerate')
+api.add_resource(NovelContinue, '/api/project/<int:project_id>/novel/continue', endpoint='novel_continue')
+
 
 if __name__ == '__main__':
     # generate_image('temp', os.path.join(DATA_DIR, 'temp.png'), 'blue', '')
