@@ -511,7 +511,9 @@ class Comic(Resource):
                         'role': 'system',
                         'content': (
                             'You are a creative visual storyteller who transforms novel paragraph '
-                            'into comic description.'
+                            'into comic description, '
+                            'staying within 200 characters (including spaces), '
+                            'and ensuring the description is in the same language as the input paragraph.'
                         )
                     },
                     {
@@ -537,7 +539,9 @@ class Comic(Resource):
                         'role': 'system',
                         'content': (
                             'You are a creative visual storyteller who transforms novel paragraph '
-                            'into anime description.'
+                            'into anime description, '
+                            'staying within 200 characters (including spaces), '
+                            'and ensuring the description is in the same language as the input paragraph.'
                         )
                     },
                     {
