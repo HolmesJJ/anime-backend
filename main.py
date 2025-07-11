@@ -1,6 +1,5 @@
 import os
 import re
-import time
 import base64
 import shutil
 import pandas as pd
@@ -658,17 +657,97 @@ class FullAnime(Resource):
 
 class Regenerate(Resource):
     def post(self):
-        try:
-            data = request.get_json()
-            project_detail_id = data.get('project_detail_id')
-            image_description = data.get('image_description')
-            video_description = data.get('video_description')
-            print(project_detail_id, image_description, video_description)
-            time.sleep(2)
-        except mysql.connector.Error as err:
-            return {'error': str(err)}, 500
-        time.sleep(2)
-        return {'message': 'Regenerate successfully'}
+        data = request.get_json()
+        project_detail_id = data.get('project_detail_id')
+        image_description = data.get('image_description')
+        video_description = data.get('video_description')
+        if not project_detail_id:
+            return {'error': 'Missing project_detail_id'}, 400
+        cnx = mysql.connector.connect(
+            host=MYSQL['host'],
+            user=MYSQL['username'],
+            password=MYSQL['password'],
+            database=MYSQL['database']
+        )
+        cursor = cnx.cursor()
+        cursor.execute('SELECT id, paragraph, project_id FROM project_detail WHERE id = %s', (project_detail_id,))
+        result = cursor.fetchone()
+        if not result:
+            return {'error': 'project_detail_id not found'}, 404
+        pid, paragraph, project_id = result
+        folder_path = os.path.join(DATA_DIR, str(project_id))
+        os.makedirs(folder_path, exist_ok=True)
+        client = OpenAI(api_key=GPT_KEY)
+        if image_description:
+            image_messages = [
+                {
+                    'role': 'system',
+                    'content': (
+                        'You are a creative visual storyteller who transforms novel paragraph '
+                        'into comic description, '
+                        'staying within 200 characters (including spaces), '
+                        'and ensuring the description is in the same language as the input paragraph.'
+                    )
+                },
+                {
+                    'role': 'user',
+                    "content": (
+                        'Paragraph:\n'
+                        f'{paragraph}\n\n'
+                        'Describe this paragraph.'
+                        'Output ONLY the comic description, no extra words.'
+                    )
+                }
+            ]
+            response = client.chat.completions.create(
+                model=GPT_TEXT_MODEL,
+                messages=image_messages,
+                temperature=0.7
+            )
+            image_description = response.choices[0].message.content.strip()
+            update_query = 'UPDATE project_detail SET image_description = %s WHERE id = %s'
+            cursor.execute(update_query, (image_description, pid))
+            image_path = os.path.join(folder_path, f'{pid}.png')
+            generate_image(pid, image_path, 'green', '')
+        elif video_description:
+            video_messages = [
+                {
+                    'role': 'system',
+                    'content': (
+                        'You are a creative visual storyteller who transforms novel paragraph '
+                        'into anime description, '
+                        'staying within 200 characters (including spaces), '
+                        'and ensuring the description is in the same language as the input paragraph.'
+                    )
+                },
+                {
+                    'role': 'user',
+                    "content": (
+                        'Paragraph:\n'
+                        f'{paragraph}\n\n'
+                        'Describe this paragraph.'
+                        'Output ONLY the anime description, no extra words.'
+                    )
+                }
+            ]
+            response = client.chat.completions.create(
+                model=GPT_TEXT_MODEL,
+                messages=video_messages,
+                temperature=0.7
+            )
+            video_description = response.choices[0].message.content.strip()
+            update_query = 'UPDATE project_detail SET video_description = %s WHERE id = %s'
+            cursor.execute(update_query, (video_description, pid))
+            image_path = os.path.join(folder_path, f'{pid}.png')
+            video_path = os.path.join(folder_path, f'{pid}.mp4')
+            if os.path.exists(image_path):
+                generate_video(image_path, video_path)
+        else:
+            return {'error': 'No description type provided'}, 400
+        cnx.commit()
+        cursor.close()
+        cnx.close()
+        return {'message': 'Regenerated successfully'}
 
 
 api.add_resource(Index, '/', endpoint='index')
