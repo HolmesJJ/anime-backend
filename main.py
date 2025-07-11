@@ -497,15 +497,70 @@ class Comic(Resource):
                 database=MYSQL['database']
             )
             cursor = cnx.cursor()
-            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
-            ids = [row[0] for row in cursor.fetchall()]
-            cursor.close()
-            cnx.close()
+            cursor.execute('SELECT id, paragraph FROM project_detail WHERE project_id = %s ORDER BY id ASC',
+                           (project_id,))
+            rows = cursor.fetchall()
             folder_path = os.path.join(DATA_DIR, str(project_id))
             os.makedirs(folder_path, exist_ok=True)
-            for pid in ids:
+            for pid, paragraph in rows:
                 image_path = os.path.join(folder_path, f'{pid}.png')
                 generate_image(pid, image_path, 'green', '')
+                client = OpenAI(api_key=GPT_KEY)
+                image_messages = [
+                    {
+                        'role': 'system',
+                        'content': (
+                            'You are a creative visual storyteller who transforms novel paragraph '
+                            'into comic description.'
+                        )
+                    },
+                    {
+                        'role': 'user',
+                        "content": (
+                            'Paragraph:\n'
+                            f'{paragraph}\n\n'
+                            'Describe this paragraph.'
+                            'Output ONLY the comic description, no extra words.'
+                        )
+                     }
+                ]
+                response = client.chat.completions.create(
+                    model=GPT_TEXT_MODEL,
+                    messages=image_messages,
+                    temperature=0.7
+                )
+                image_description = response.choices[0].message.content.strip()
+                update_query = 'UPDATE project_detail SET image_description = %s WHERE id = %s'
+                cursor.execute(update_query, (image_description, pid))
+                video_messages = [
+                    {
+                        'role': 'system',
+                        'content': (
+                            'You are a creative visual storyteller who transforms novel paragraph '
+                            'into anime description.'
+                        )
+                    },
+                    {
+                        'role': 'user',
+                        "content": (
+                            'Paragraph:\n'
+                            f'{paragraph}\n\n'
+                            'Describe this paragraph.'
+                            'Output ONLY the anime description, no extra words.'
+                        )
+                    }
+                ]
+                response = client.chat.completions.create(
+                    model=GPT_TEXT_MODEL,
+                    messages=video_messages,
+                    temperature=0.7
+                )
+                video_description = response.choices[0].message.content.strip()
+                update_query = 'UPDATE project_detail SET video_description = %s WHERE id = %s'
+                cursor.execute(update_query, (video_description, pid))
+            cnx.commit()
+            cursor.close()
+            cnx.close()
             return {'message': 'Comic generated successfully'}
         except Exception as e:
             return {'error': str(e)}, 500
