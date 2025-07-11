@@ -656,11 +656,7 @@ class FullAnime(Resource):
 
 
 class Regenerate(Resource):
-    def post(self):
-        data = request.get_json()
-        project_detail_id = data.get('project_detail_id')
-        image_description = data.get('image_description')
-        video_description = data.get('video_description')
+    def post(self, project_detail_id, description):
         if not project_detail_id:
             return {'error': 'Missing project_detail_id'}, 400
         cnx = mysql.connector.connect(
@@ -678,7 +674,7 @@ class Regenerate(Resource):
         folder_path = os.path.join(DATA_DIR, str(project_id))
         os.makedirs(folder_path, exist_ok=True)
         client = OpenAI(api_key=GPT_KEY)
-        if image_description:
+        if description == 'image':
             image_messages = [
                 {
                     'role': 'system',
@@ -709,7 +705,7 @@ class Regenerate(Resource):
             cursor.execute(update_query, (image_description, pid))
             image_path = os.path.join(folder_path, f'{pid}.png')
             generate_image(pid, image_path, 'green', '')
-        elif video_description:
+        elif description == 'video':
             video_messages = [
                 {
                     'role': 'system',
@@ -761,7 +757,8 @@ api.add_resource(Anime, '/api/project/<int:project_id>/anime', endpoint='anime')
 api.add_resource(FullAnime, '/api/project/<int:project_id>/full_anime', endpoint='full_anime')
 api.add_resource(ProjectDetails, '/api/project/<int:project_id>/details/<string:column>', endpoint='project_details')
 api.add_resource(ProjectDetail, '/api/project/detail/<int:project_detail_id>', endpoint='project_detail')
-api.add_resource(Regenerate, '/api/project/regenerate', endpoint='regenerate')
+api.add_resource(Regenerate, '/api/project/detail/<int:project_detail_id>/regenerate/<string:description>',
+                 endpoint='regenerate')
 api.add_resource(NovelContinue, '/api/project/<int:project_id>/novel/continue', endpoint='novel_continue')
 
 
