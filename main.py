@@ -708,7 +708,7 @@ api.add_resource(Anime, '/api/project/<int:project_id>/anime', endpoint='anime')
 api.add_resource(FullAnime, '/api/project/<int:project_id>/full_anime', endpoint='full_anime')
 api.add_resource(ProjectDetails, '/api/project/<int:project_id>/details/<string:column>', endpoint='project_details')
 api.add_resource(ProjectDetail, '/api/project/detail/<int:project_detail_id>', endpoint='project_detail')
-api.add_resource(Regenerate, '/api/project/detail/<int:project_detail_id>/regenerate/<string:description>',
+api.add_resource(Regenerate, '/api/project/detail/<int:project_detail_id>/regenerate/<string:description_type>',
                  endpoint='regenerate')
 api.add_resource(NovelContinue, '/api/project/<int:project_id>/novel/continue', endpoint='novel_continue')
 
