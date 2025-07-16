@@ -656,9 +656,13 @@ class FullAnime(Resource):
 
 
 class Regenerate(Resource):
-    def post(self, project_detail_id, description):
+    def post(self, project_detail_id, description_type):
         if not project_detail_id:
             return {'error': 'Missing project_detail_id'}, 400
+        data = request.get_json()
+        description = data.get('description', '')
+        if description.strip() == '':
+            return {'error': 'Field "description" is required'}, 400
         cnx = mysql.connector.connect(
             host=MYSQL['host'],
             user=MYSQL['username'],
@@ -673,67 +677,14 @@ class Regenerate(Resource):
         pid, paragraph, project_id = result
         folder_path = os.path.join(DATA_DIR, str(project_id))
         os.makedirs(folder_path, exist_ok=True)
-        client = OpenAI(api_key=GPT_KEY)
-        if description == 'image':
-            image_messages = [
-                {
-                    'role': 'system',
-                    'content': (
-                        'You are a creative visual storyteller who transforms novel paragraph '
-                        'into comic description, '
-                        'staying within 200 characters (including spaces), '
-                        'and ensuring the description is in the same language as the input paragraph.'
-                    )
-                },
-                {
-                    'role': 'user',
-                    "content": (
-                        'Paragraph:\n'
-                        f'{paragraph}\n\n'
-                        'Describe this paragraph.'
-                        'Output ONLY the comic description, no extra words.'
-                    )
-                }
-            ]
-            response = client.chat.completions.create(
-                model=GPT_TEXT_MODEL,
-                messages=image_messages,
-                temperature=0.7
-            )
-            image_description = response.choices[0].message.content.strip()
+        if description_type == 'image':
             update_query = 'UPDATE project_detail SET image_description = %s WHERE id = %s'
-            cursor.execute(update_query, (image_description, pid))
+            cursor.execute(update_query, (description, pid))
             image_path = os.path.join(folder_path, f'{pid}.png')
             generate_image(pid, image_path, 'green', '')
-        elif description == 'video':
-            video_messages = [
-                {
-                    'role': 'system',
-                    'content': (
-                        'You are a creative visual storyteller who transforms novel paragraph '
-                        'into anime description, '
-                        'staying within 200 characters (including spaces), '
-                        'and ensuring the description is in the same language as the input paragraph.'
-                    )
-                },
-                {
-                    'role': 'user',
-                    "content": (
-                        'Paragraph:\n'
-                        f'{paragraph}\n\n'
-                        'Describe this paragraph.'
-                        'Output ONLY the anime description, no extra words.'
-                    )
-                }
-            ]
-            response = client.chat.completions.create(
-                model=GPT_TEXT_MODEL,
-                messages=video_messages,
-                temperature=0.7
-            )
-            video_description = response.choices[0].message.content.strip()
+        elif description_type == 'video':
             update_query = 'UPDATE project_detail SET video_description = %s WHERE id = %s'
-            cursor.execute(update_query, (video_description, pid))
+            cursor.execute(update_query, (description, pid))
             image_path = os.path.join(folder_path, f'{pid}.png')
             video_path = os.path.join(folder_path, f'{pid}.mp4')
             if os.path.exists(image_path):
