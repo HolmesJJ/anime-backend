@@ -479,7 +479,17 @@ class Comic(Resource):
                 database=MYSQL['database']
             )
             cursor = cnx.cursor()
-            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            cursor.execute(
+                '''
+                SELECT id
+                FROM project_detail
+                WHERE project_id = %s
+                  AND image_description IS NOT NULL
+                  AND image_description <> ''
+                ORDER BY id ASC
+                ''',
+                (project_id,)
+            )
             ids = [row[0] for row in cursor.fetchall()]
             cursor.close()
             cnx.close()
@@ -551,7 +561,17 @@ class Anime(Resource):
                 database=MYSQL['database']
             )
             cursor = cnx.cursor()
-            cursor.execute('SELECT id FROM project_detail WHERE project_id = %s ORDER BY id ASC', (project_id,))
+            cursor.execute(
+                '''
+                SELECT id
+                FROM project_detail
+                WHERE project_id = %s
+                  AND video_description IS NOT NULL
+                  AND video_description <> ''
+                ORDER BY id ASC
+                ''',
+                (project_id,)
+            )
             ids = [row[0] for row in cursor.fetchall()]
             cursor.close()
             cnx.close()
